@@ -87,7 +87,7 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
 
     #rew_scale_dist = 0.1
     #PAN
-    rew_scale_dist = 10
+    rew_scale_dist = 200
 
     rew_scale_direction = -1.0
 
@@ -388,5 +388,5 @@ def quaternion_to_angle(quaternions: torch.Tensor):
     x_prime = 1 - 2 * (y**2 + z**2)
     
     angles = torch.arccos(torch.clamp(x_prime, -1.0, 1.0))  # [-1, 1]
-    print("angle: ", angles, "shape:", angles.shape)
+    # print("angle: ", angles, "shape:", angles.shape)
     return angles
