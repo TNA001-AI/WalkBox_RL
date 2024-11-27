@@ -82,15 +82,13 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
     # reward scales
     # TODO
     rew_scale_alive = 1.0
-    rew_scale_terminated = -2.0
+    rew_scale_terminated = -5.0
 
-    #rew_scale_dist = 0.1
-    #PAN
-    rew_scale_dist = 200
+    rew_scale_dist = -0.05
 
-    rew_scale_direction = -1.0
+    rew_scale_direction = -0.5
 
-    scale_dof_velocity = 0.1
+    rew_head_velocity = 2
 
 
 
@@ -222,15 +220,19 @@ class RobotImuEnv(DirectRLEnv):
     def _get_rewards(self) -> torch.Tensor:
         self.head_pos = self._robot.data.body_pos_w[:, self.head_link_idx]
         self.head_rot = self._robot.data.body_quat_w[:, self.head_link_idx]
+        # linear and angular velocities
+        self.head_vel = self._robot.data.body_lin_vel_w[:, self.head_link_idx]
         # print("head_rot:", self.head_rot, "shape:", self.head_rot.shape)
-        total_reward = compute_rewards(
+        total_reward = self.compute_rewards(
             self.cfg.rew_scale_alive,
             self.cfg.rew_scale_terminated,
             self.cfg.rew_scale_dist,
             self.cfg.rew_scale_direction,
+            self.cfg.rew_head_velocity,
             self.head_pos,
             self.head_rot,
             self.target, 
+            self.head_vel,
             # self.joint_pos[:, self.left_hip_joint_idx[0]],
             # self.joint_vel[:, self.left_hip_joint_idx[0]],
 
@@ -275,10 +277,10 @@ class RobotImuEnv(DirectRLEnv):
         self.to_target = torch.norm(self.all_head_pos - self.target, p=2, dim=-1)
         
         # if the robot has reached the target
-        reached_target = self.to_target < 1.0
+        reached_target = self.to_target < 0.5
 
         # if the head's z-position is less than 0.15 units
-        fallen = self.all_head_pos[:, 2] < 0.15 
+        fallen = self.all_head_pos[:, 2] < 0.10 
 
         # Combine termination conditions
         terminated = reached_target | fallen
@@ -359,27 +361,39 @@ class RobotImuEnv(DirectRLEnv):
 #     return total_reward
 
 #PAN
-def compute_rewards(
-    rew_scale_alive: float,
-    rew_scale_terminated: float,
-    rew_scale_dist: float,
-    rew_scale_direction: float,
-    head_pos: torch.Tensor,
-    head_rot: torch.Tensor,
-    targets: torch.Tensor,
-    reset_terminated: torch.Tensor,
-):
-    # Compute distance-based reward: Euclidean distance
-    d = torch.norm(head_pos - targets, p=2, dim=-1)
-    # the more closer, the higher of dist_reward
-    dist_reward = 1.0 / (1.0 + d)
-    rew_dist = rew_scale_dist * dist_reward
-    rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
-    rew_termination = rew_scale_terminated * reset_terminated.float()
-    rew_direction = rew_scale_direction * quaternion_to_angle(head_rot)
-    # Compute total reward
-    total_reward = rew_alive + rew_termination + rew_dist + rew_direction
-    return total_reward
+    def compute_rewards(self,
+        rew_scale_alive: float,
+        rew_scale_terminated: float,
+        rew_scale_dist: float,
+        rew_scale_direction: float,
+        rew_head_velocity: float,
+        head_pos: torch.Tensor,
+        head_rot: torch.Tensor,
+        targets: torch.Tensor,
+        head_vel: torch.Tensor,
+        reset_terminated: torch.Tensor,
+    ):
+        # Compute distance-based reward: Euclidean distance
+        d = torch.norm(head_pos - targets, p=2, dim=-1)
+        # print("head_pos: ", head_pos)
+        # print("d: ", head_pos - targets)
+        # the more closer, the higher of dist_reward
+        dist_reward = d
+        rew_dist = rew_scale_dist * dist_reward
+        rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
+        rew_termination = rew_scale_terminated * reset_terminated.float()
+        rew_direction = rew_scale_direction * quaternion_to_angle(head_rot)
+        rew_vel = rew_head_velocity * head_vel[:,0]
+        # Compute total reward
+        total_reward = rew_alive + rew_termination + rew_dist + rew_direction + rew_vel
+        self.extras["log"] = {
+        "rew_alive": (rew_alive).mean(),
+        "rew_termination": (rew_termination).mean(),
+        "rew_dist": (rew_dist).mean(),
+        "rew_direction": (rew_direction).mean(),
+        "rew_vel": (rew_vel).mean(),
+        }
+        return total_reward
 
 
 
@@ -393,4 +407,5 @@ def quaternion_to_angle(quaternions: torch.Tensor):
     
     angles = torch.arccos(torch.clamp(x_prime, -1.0, 1.0))  # [-1, 1]
     # print("angle: ", angles, "shape:", angles.shape)
+
     return angles
