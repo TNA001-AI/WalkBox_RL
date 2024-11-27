@@ -30,9 +30,8 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
     #TODO
     decimation = 2
     episode_length_s = 5.0
-    #action_scale = 100.0  # [N]
-    # PAN
-    action_scale = 1.0  # [N]
+    action_scale = 100.0  # [N]
+
 
     # state and action spaces
     # TODO
@@ -167,9 +166,12 @@ class RobotImuEnv(DirectRLEnv):
     # pre-physics step calls
 
     def _pre_physics_step(self, actions: torch.Tensor):
+        # print("joint_pos:", self._robot.data.joint_pos, "shape:", self._robot.data.joint_pos.shape)
+        # print("robot_dof_lower_limits:", self.robot_dof_lower_limits, "shape:", self.robot_dof_lower_limits.shape)       
         self.actions = actions.clone().clamp(-1.0, 1.0)
-        dof_targets = self.dt * self.actions * self.cfg.action_scale
+        dof_targets = self.robot_dof_targets + self.dt * self.actions * self.cfg.action_scale
         self.robot_dof_targets[:] = torch.clamp(dof_targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        # print("robot_dof_targets:", self.robot_dof_targets)
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self.robot_dof_targets)
@@ -180,14 +182,15 @@ class RobotImuEnv(DirectRLEnv):
 
         # print("joint_pos:", self._robot.data.joint_pos, "shape:", self._robot.data.joint_pos.shape)
         # print("robot_dof_lower_limits:", self.robot_dof_lower_limits, "shape:", self.robot_dof_lower_limits.shape)       
-        # print(self.robot_dof_upper_limits - self.robot_dof_lower_limits)
+        # # print(self.robot_dof_upper_limits - self.robot_dof_lower_limits)
 
-        dof_pos_scaled = (
-            2.0
-            * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
-            / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
-            - 1.0
-        )        
+        # dof_pos_scaled = (
+        #     2.0
+        #     * (self._robot.data.joint_pos - self.robot_dof_lower_limits)
+        #     / (self.robot_dof_upper_limits - self.robot_dof_lower_limits)
+        #     - 1.0
+        # )        
+        dof_pos_scaled = self._robot.data.joint_pos
         self.head_pos = self._robot.data.body_pos_w[env_ids, self.head_link_idx]
         self.head_rot = self._robot.data.body_quat_w[env_ids, self.head_link_idx]
         # linear and angular velocities
@@ -300,12 +303,12 @@ class RobotImuEnv(DirectRLEnv):
         # )
         # robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids] + sample_uniform(
-            -0.125,
-            0.125,
+            -0.0125,
+            0.0125,
             (len(env_ids), self._robot.num_joints),
             self.device,
         )
-        joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        # joint_pos = torch.clamp(joint_pos, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
         joint_vel = torch.zeros_like(joint_pos)
 
         default_root_state = self._robot.data.default_root_state[env_ids]
@@ -330,6 +333,7 @@ class RobotImuEnv(DirectRLEnv):
         # print("id:", env_ids,"head_pos:",self.head_pos,"shape:", self.head_pos.shape)
 
         self.to_target = torch.norm(self.head_pos - self.target[env_ids], p=2, dim=-1)
+        self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
         # print("to_target:", self.target[env_ids],"shape:",self.target[env_ids].shape)
 
 # @torch.jit.script

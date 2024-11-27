@@ -50,8 +50,8 @@ class CartpolePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.5,
-        actor_hidden_dims=[128, 64],
-        critic_hidden_dims=[128, 64],
+        actor_hidden_dims=[400, 200, 100],
+        critic_hidden_dims=[400, 200, 100],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
