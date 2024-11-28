@@ -81,14 +81,18 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
 
     # reward scales
     # TODO
-    rew_scale_alive = 1.0
-    rew_scale_terminated = -5.0
+    rew_scale_alive = 0.5
+    rew_scale_terminated = -20.0
 
     rew_scale_dist = -0.05
 
     rew_scale_direction = -0.5
 
-    rew_head_velocity = 2
+    rew_scale_head_velocity = 1
+
+    rew_scale_dof_vel = 1
+
+    rew_scale_airtime = 1
 
 
 
@@ -127,11 +131,19 @@ class RobotImuEnv(DirectRLEnv):
 
         # head link idx
         self.head_link_idx = self._robot.find_bodies("base_link")[0][0]
-
+        self.left_foot_idx = self._robot.find_bodies("Link0_2")[0][0]
+        self.right_foot_idx = self._robot.find_bodies("Link1_2")[0][0]
         self.head_pos = self._robot.data.body_pos_w[:, self.head_link_idx]
         # self.target = torch.tensor([1000, 0, 4], dtype=torch.float32, device=self.sim.device).repeat(
         #     (self.num_envs, 1)
         # )
+
+        # 用于记录左右脚的离地状态
+        self.left_foot_airtime = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
+        self.right_foot_airtime = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
+
+
+        # target
         self.target =  self.head_pos.clone()
         self.target[:,0] += 10
 
@@ -223,59 +235,52 @@ class RobotImuEnv(DirectRLEnv):
         # linear and angular velocities
         self.head_vel = self._robot.data.body_lin_vel_w[:, self.head_link_idx]
         # print("head_rot:", self.head_rot, "shape:", self.head_rot.shape)
+        dof_vel = self._robot.data.joint_vel
         total_reward = self.compute_rewards(
             self.cfg.rew_scale_alive,
             self.cfg.rew_scale_terminated,
             self.cfg.rew_scale_dist,
             self.cfg.rew_scale_direction,
-            self.cfg.rew_head_velocity,
+            self.cfg.rew_scale_head_velocity,
+            self.cfg.rew_scale_dof_vel,
+            self.cfg.rew_scale_dof_vel,
             self.head_pos,
             self.head_rot,
             self.target, 
             self.head_vel,
+            dof_vel,
             # self.joint_pos[:, self.left_hip_joint_idx[0]],
             # self.joint_vel[:, self.left_hip_joint_idx[0]],
-
             self.reset_terminated,
         )
 
         return total_reward
 
 
-    # def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-    #     # Get the robot's orientation (quaternion)
-    #     head_quat = self._robot.data.body_quat_w[:, self.head_link_idx]
-        
-    #     # Convert quaternion to upward direction vector
-    #     # Assuming the quaternion is in (w, x, y, z) format
-    #     # and that the robot's local 'up' direction is along the z-axis
-    #     up_dir = sim_utils.quat_axis(head_quat, axis=2)  # Up direction in world coordinates
-
-    #     # Calculate the angle between the robot's up direction and the world up vector (0, 0, 1)
-    #     cos_theta = up_dir[:, 2]  # Dot product with world up vector (0, 0, 1)
-    #     fallen = cos_theta < 0.8  # Threshold angle (e.g., cos(30 degrees) ≈ 0.866)
-
-    #     # Alternatively, use height check
-    #     base_height = self.all_head_pos[:, 2]
-    #     fallen_height = base_height < 0.2  # Threshold height indicating a fall
-
-    #     # Combine the fall conditions
-    #     fallen = fallen | fallen_height
-
-    #     # Existing termination conditions
-    #     self.to_target = torch.norm(self.all_head_pos - self.target, p=2, dim=-1)
-    #     reached_target = self.to_target < 1.0
-
-    #     terminated = reached_target | fallen  # Terminate if reached target or fallen
-    #     truncated = self.episode_length_buf >= self.max_episode_length - 1
-    #     self.reset_terminated = terminated  # Update the reset flag
-    #     return terminated, truncated
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         self.all_head_pos = self._robot.data.body_pos_w[:, self.head_link_idx]
         
         self.to_target = torch.norm(self.all_head_pos - self.target, p=2, dim=-1)
         
+        # 地面高度阈值
+        ground_level = 0.06  # 地面高度
+
+        # 获取脚部 z 坐标
+        left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
+        right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
+        # print("left_foot_pos:",left_foot_pos)
+        # print("right_foot_pos:",right_foot_pos)
+        # 检测是否离地
+        left_foot_in_air = left_foot_pos > ground_level
+        right_foot_in_air = right_foot_pos > ground_level
+
+        # 更新离地时间
+        self.left_foot_airtime[left_foot_in_air] += self.dt
+        self.right_foot_airtime[right_foot_in_air] += self.dt
+        self.left_foot_airtime[~left_foot_in_air] = 0
+        self.right_foot_airtime[~right_foot_in_air] = 0
+
         # if the robot has reached the target
         reached_target = self.to_target < 0.5
 
@@ -286,6 +291,8 @@ class RobotImuEnv(DirectRLEnv):
         terminated = reached_target | fallen
         
         truncated = self.episode_length_buf >= self.max_episode_length - 1
+
+        # print('max_episode_length:',self.max_episode_length)
         self.reset_terminated = terminated  # Update the reset flag
         
         
@@ -366,11 +373,14 @@ class RobotImuEnv(DirectRLEnv):
         rew_scale_terminated: float,
         rew_scale_dist: float,
         rew_scale_direction: float,
-        rew_head_velocity: float,
+        rew_scale_head_velocity: float,
+        rew_scale_dof_vel: float,
+        rew_scale_airtime:float,
         head_pos: torch.Tensor,
         head_rot: torch.Tensor,
         targets: torch.Tensor,
         head_vel: torch.Tensor,
+        dof_vel: torch.Tensor,
         reset_terminated: torch.Tensor,
     ):
         # Compute distance-based reward: Euclidean distance
@@ -383,15 +393,35 @@ class RobotImuEnv(DirectRLEnv):
         rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
         rew_termination = rew_scale_terminated * reset_terminated.float()
         rew_direction = rew_scale_direction * quaternion_to_angle(head_rot)
-        rew_vel = rew_head_velocity * head_vel[:,0]
+        rew_vel = rew_scale_head_velocity * head_vel[:,0]
+        
+        # print("rew_dof_vel:",dof_vel)
+        # hip_vel = (torch.abs(dof_vel[:, self.left_hip_joint_idx[0]]) + 
+        #            torch.abs(dof_vel[:, self.right_hip_joint_idx[0]]))
+        # rew_dof_vel = rew_scale_dof_vel * hip_vel.squeeze(-1)
+
+        # 左右脚离地奖励
+        rew_left_airtime = rew_scale_airtime * self.left_foot_airtime
+        rew_right_airtime = rew_scale_airtime * self.right_foot_airtime
+        rew_airtime = rew_left_airtime + rew_right_airtime
+
         # Compute total reward
-        total_reward = rew_alive + rew_termination + rew_dist + rew_direction + rew_vel
+        total_reward = (rew_alive + 
+                        rew_termination + 
+                        rew_dist + 
+                        rew_direction + 
+                        rew_vel + 
+                        # rew_dof_vel +
+                        rew_airtime
+                        )
         self.extras["log"] = {
         "rew_alive": (rew_alive).mean(),
         "rew_termination": (rew_termination).mean(),
         "rew_dist": (rew_dist).mean(),
         "rew_direction": (rew_direction).mean(),
         "rew_vel": (rew_vel).mean(),
+        # "rew_dof_vel": (rew_dof_vel).mean(),
+        "rew_airtime": (rew_airtime).mean(),
         }
         return total_reward
 

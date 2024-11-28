@@ -63,7 +63,7 @@ class CartpolePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         num_mini_batches=8,
         learning_rate=3e-4,
         schedule="adaptive",
-        gamma=0.95,
+        gamma=0.99,
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
