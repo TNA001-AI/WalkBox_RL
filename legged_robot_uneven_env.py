@@ -29,7 +29,7 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
     # env
     #TODO
     decimation = 2
-    episode_length_s = 60.0  
+    episode_length_s = 25.0  
     action_scale = 100.0  # [N]
 
 
@@ -98,7 +98,7 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
 
 
 
-class RobotImuEnv(DirectRLEnv):
+class RobotImuUnevenEnv(DirectRLEnv):
 
     cfg: RobotImuEnvCfg
 
@@ -286,7 +286,7 @@ class RobotImuEnv(DirectRLEnv):
         reached_target = self.to_target < 0.5
 
         # if the head's z-position is less than 0.15 units
-        fallen = self.all_head_pos[:, 2] < 0.20
+        fallen = self.all_head_pos[:, 2] < 0.2
 
         # Combine termination conditions
         terminated = reached_target | fallen
