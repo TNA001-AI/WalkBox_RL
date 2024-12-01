@@ -19,15 +19,15 @@ from omni.isaac.lab.scene import InteractiveSceneCfg
 
 from omni.isaac.lab.sensors import TiledCamera, TiledCameraCfg, save_images_to_file
 from omni.isaac.lab.sensors import ImuCfg, Imu, patterns, ImuData
+from omni.isaac.lab.sensors import RayCasterCfg,RayCaster
 
 from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.math import sample_uniform
 
 @configclass
-class RobotImuEnvCfg(DirectRLEnvCfg):
+class RobotRayEnvCfg(DirectRLEnvCfg):
     # env
-    #TODO
     decimation = 2
     episode_length_s = 25.0  
     action_scale = 100.0  # [N]
@@ -36,7 +36,7 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
     # state and action spaces
     # TODO
     action_space = 6  
-    observation_space = 18  
+    observation_space = 19  
     state_space = 0
 
     # simulation
@@ -68,7 +68,17 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
     #     ),
     # gravity_bias=(0.0, 0.0, 9.81),
     # )
-
+    height_scanner = RayCasterCfg(
+        prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/base_link",
+        update_period=0.02,
+        offset=RayCasterCfg.OffsetCfg(pos=(0.000, 0.000, -0.100), 
+                                    #   rot=(0.0, 0.0, 0.0, 0.0)
+                                      ),
+        attach_yaw_only=True,
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        debug_vis=True,
+        mesh_prim_paths=["/World/ground"],
+    )
     write_image_to_file = False
 
 
@@ -98,12 +108,12 @@ class RobotImuEnvCfg(DirectRLEnvCfg):
 
 
 
-class RobotImuUnevenEnv(DirectRLEnv):
+class RobotRayUnevenEnv(DirectRLEnv):
 
-    cfg: RobotImuEnvCfg
+    cfg: RobotRayEnvCfg
 
     def __init__(
-        self, cfg: RobotImuEnvCfg, render_mode: str | None = None, **kwargs
+        self, cfg: RobotRayEnvCfg, render_mode: str | None = None, **kwargs
     ):
         super().__init__(cfg, render_mode, **kwargs)
 
@@ -158,6 +168,7 @@ class RobotImuUnevenEnv(DirectRLEnv):
     def _setup_scene(self):
         """Setup the scene."""
         self._robot = Articulation(self.cfg.robot_cfg)
+        self._ray = RayCaster(self.cfg.height_scanner)
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self.terrain = self.cfg.terrain.class_type(self.cfg.terrain)
@@ -168,6 +179,7 @@ class RobotImuUnevenEnv(DirectRLEnv):
 
         # add articulation and sensors to scene
         self.scene.articulations["robot"] = self._robot
+        self.scene.sensors["height_scanner"] = self._ray
         # self.scene.sensors["imu"] = self._imu
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -190,6 +202,8 @@ class RobotImuUnevenEnv(DirectRLEnv):
         if env_ids is None:
             env_ids = self._robot._ALL_INDICES
 
+        ray_data = self._ray.data.ray_hits_w
+        ray_data = ray_data[:, :, 2]
         # print("joint_pos:", self._robot.data.joint_pos, "shape:", self._robot.data.joint_pos.shape)
         # print("robot_dof_lower_limits:", self.robot_dof_lower_limits, "shape:", self.robot_dof_lower_limits.shape)       
         # # print(self.robot_dof_upper_limits - self.robot_dof_lower_limits)
@@ -215,6 +229,7 @@ class RobotImuUnevenEnv(DirectRLEnv):
         # print("self._robot.data.joint_vel:", self._robot.data.joint_vel, "shape:", self._robot.data.joint_vel.shape)
         # print("self.to_target:", self.to_target, "shape:", self.to_target.shape)
         # print("head_pos:", self.head_pos, "shape:", self.head_pos.shape)
+        # print("ray_data:", ray_data, "shape:", ray_data.shape)
         # print("head_rot:", self.head_rot, "shape:", self.head_rot.shape)
         obs = torch.cat(
             (
@@ -223,7 +238,8 @@ class RobotImuUnevenEnv(DirectRLEnv):
                 self.to_target,
                 self.head_pos,
                 self.head_rot,
-                self.head_vel
+                self.head_vel,
+                ray_data
             ),
             dim=-1,
         )

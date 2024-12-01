@@ -30,12 +30,12 @@ gym.register(
 
 gym.register(
     id="Isaac-Robot-Uneven-Direct",
-    entry_point=f"{__name__}.legged_robot_uneven_env:RobotImuUnevenEnv",
+    entry_point=f"{__name__}.legged_robot_uneven_env:RobotRayUnevenEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.legged_robot_env:RobotImuEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.legged_robot_uneven_env:RobotRayEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_ppo_cfg.yaml",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_uneven_ppo_cfg:CartpolePPORunnerCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnevenPPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
         "sb3_cfg_entry_point": f"{agents.__name__}:sb3_ppo_cfg.yaml",
     },
