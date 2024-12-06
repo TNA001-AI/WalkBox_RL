@@ -24,6 +24,7 @@ LEGGED_CFG = ArticulationCfg(
     # prim_path="/Root/Robot",
     spawn=sim_utils.UsdFileCfg(
         usd_path=os.path.join(CURRENT_DIR, "WalkBox3.usd"),
+        activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=None,
             max_depenetration_velocity=10.0,

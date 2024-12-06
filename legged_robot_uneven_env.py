@@ -10,6 +10,8 @@ import torch
 from collections.abc import Sequence
 
 from .legged_robot_cfg import LEGGED_CFG
+from omni.isaac.lab.terrains.config.rough import ROUGH_TERRAINS_CFG 
+from omni.isaac.lab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.terrains import TerrainImporterCfg
@@ -19,7 +21,7 @@ from omni.isaac.lab.scene import InteractiveSceneCfg
 
 from omni.isaac.lab.sensors import TiledCamera, TiledCameraCfg, save_images_to_file
 from omni.isaac.lab.sensors import ImuCfg, Imu, patterns, ImuData
-from omni.isaac.lab.sensors import RayCasterCfg,RayCaster
+from omni.isaac.lab.sensors import RayCasterCfg,RayCaster,ContactSensor, ContactSensorCfg
 
 from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.utils import configclass
@@ -45,19 +47,36 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     # robot
     robot_cfg: ArticulationCfg = LEGGED_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 
+    # terrain = TerrainImporterCfg(
+    # prim_path="/World/ground",
+    # terrain_type="plane",
+    # collision_group=-1,
+    # physics_material=sim_utils.RigidBodyMaterialCfg(
+    #     friction_combine_mode="average",
+    #     restitution_combine_mode="average",
+    #     static_friction=1.0,
+    #     dynamic_friction=1.0,
+    #     restitution=0.0,
+    # ),
+    # debug_vis=False,
+    # )
     terrain = TerrainImporterCfg(
     prim_path="/World/ground",
-    terrain_type="plane",
-    collision_group=-1,
+    terrain_type="generator",
+    terrain_generator=ROUGH_TERRAINS_CFG,
     physics_material=sim_utils.RigidBodyMaterialCfg(
-        friction_combine_mode="average",
-        restitution_combine_mode="average",
+        friction_combine_mode="multiply",
+        restitution_combine_mode="multiply",
         static_friction=1.0,
         dynamic_friction=1.0,
-        restitution=0.0,
+    ),
+    visual_material=sim_utils.MdlFileCfg(
+        mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+        project_uvw=True,
+        texture_scale=(0.25, 0.25),
     ),
     debug_vis=False,
-)
+    )
     # sensors
     # imu = ImuCfg(
     #     prim_path="/World/Robot/base_link",
@@ -68,6 +87,26 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     #     ),
     # gravity_bias=(0.0, 0.0, 9.81),
     # )
+    contact_forces_LF = ContactSensorCfg(
+        prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/Link0_2",
+        track_pose=True,
+        debug_vis=False,
+        update_period=0.0,
+        track_air_time=True,
+        history_length=3,
+        filter_prim_paths_expr=["/World/ground"],
+    )
+
+    contact_forces_RF = ContactSensorCfg(
+        prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/Link1_2",
+        track_pose=True,
+        debug_vis=False,
+        update_period=0.0,
+        track_air_time=True,
+        history_length=3,
+        filter_prim_paths_expr=["/World/ground"],
+    )
+
     height_scanner = RayCasterCfg(
         prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/base_link",
         update_period=0.02,
@@ -174,12 +213,16 @@ class RobotRayUnevenEnv(DirectRLEnv):
         self.terrain = self.cfg.terrain.class_type(self.cfg.terrain)
         # self._imu = Imu(self.cfg.imu)
         # clone, filter, and replicate
+        self._contact_sensor0: ContactSensor = ContactSensor(self.cfg.contact_forces_LF)
+        self._contact_sensor1: ContactSensor = ContactSensor(self.cfg.contact_forces_RF)
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
 
         # add articulation and sensors to scene
         self.scene.articulations["robot"] = self._robot
         self.scene.sensors["height_scanner"] = self._ray
+        self.scene.sensors["contact_sensor0"] = self._contact_sensor0
+        self.scene.sensors["contact_sensor1"] = self._contact_sensor1
         # self.scene.sensors["imu"] = self._imu
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -279,26 +322,29 @@ class RobotRayUnevenEnv(DirectRLEnv):
         
         self.to_target = torch.norm(self.all_head_pos - self.target, p=2, dim=-1)
         
-        # 地面高度阈值
-        ground_level = 0.06  # 地面高度 6cm
+        # # AIRTIME
+        # # 地面高度阈值
+        # ground_level = 0.06  # 地面高度 6cm
     
 
-        # 获取脚部 z 坐标
-        left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
-        right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
-        # print("left_foot_pos:",left_foot_pos)
-        # print("right_foot_pos:",right_foot_pos)
-        # 检测是否离地
-        left_foot_in_air = left_foot_pos > ground_level
-        right_foot_in_air = right_foot_pos > ground_level
+        # # 获取脚部 z 坐标
+        # left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
+        # right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
+        # # print("left_foot_pos:",left_foot_pos)
+        # # print("right_foot_pos:",right_foot_pos)
+        # # 检测是否离地
+        # left_foot_in_air = left_foot_pos > ground_level
+        # right_foot_in_air = right_foot_pos > ground_level
 
-        # 更新离地时间
-        self.left_foot_airtime[left_foot_in_air] += self.dt
-        self.right_foot_airtime[right_foot_in_air] += self.dt
-        self.left_foot_airtime[~left_foot_in_air] = 0
-        self.right_foot_airtime[~right_foot_in_air] = 0
+        # # 更新离地时间
+        # self.left_foot_airtime[left_foot_in_air] += self.dt
+        # self.right_foot_airtime[right_foot_in_air] += self.dt
+        # self.left_foot_airtime[~left_foot_in_air] = 0
+        # self.right_foot_airtime[~right_foot_in_air] = 0
 
         # if the robot has reached the target
+        self.left_foot_airtime = self._contact_sensor0.data.current_air_time.squeeze(-1)
+        self.right_foot_airtime = self._contact_sensor1.data.current_air_time.squeeze(-1)
         reached_target = self.to_target < 0.5
 
         # if the head's z-position is less than 0.15 units
