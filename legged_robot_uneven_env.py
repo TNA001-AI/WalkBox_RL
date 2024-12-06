@@ -61,10 +61,10 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     # debug_vis=False,
     # )
     terrain = TerrainImporterCfg(
-    prim_path="/World/ground",
-    terrain_type="generator",
-    terrain_generator=ROUGH_TERRAINS_CFG,
-    physics_material=sim_utils.RigidBodyMaterialCfg(
+        prim_path="/World/ground",
+        terrain_type="generator",
+        terrain_generator=ROUGH_TERRAINS_CFG,
+        physics_material=sim_utils.RigidBodyMaterialCfg(
         friction_combine_mode="multiply",
         restitution_combine_mode="multiply",
         static_friction=1.0,
@@ -342,9 +342,12 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # self.left_foot_airtime[~left_foot_in_air] = 0
         # self.right_foot_airtime[~right_foot_in_air] = 0
 
-        # if the robot has reached the target
+        # AirTime
         self.left_foot_airtime = self._contact_sensor0.data.current_air_time.squeeze(-1)
         self.right_foot_airtime = self._contact_sensor1.data.current_air_time.squeeze(-1)
+        # print("left_foot_airtime:",self.left_foot_airtime)
+
+        # if the robot has reached the target
         reached_target = self.to_target < 0.5
 
         # if the head's z-position is less than 0.15 units
