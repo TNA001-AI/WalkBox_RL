@@ -455,7 +455,8 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # print("d: ", head_pos - targets)
         # the more closer, the higher of dist_reward
         dist_reward = d
-        rew_dist = rew_scale_dist * dist_reward
+        # rew_dist = rew_scale_dist * dist_reward
+        rew_dist = 10 * 1.3 ** (-d)
         rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
         rew_termination = rew_scale_terminated * reset_terminated.float()
         rew_direction = rew_scale_direction * quaternion_to_angle(head_rot)

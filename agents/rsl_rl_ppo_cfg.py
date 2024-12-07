@@ -72,7 +72,7 @@ class CartpolePPORunnerCfg(RslRlOnPolicyRunnerCfg):
 @configclass
 class UnevenPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 128
-    max_iterations = 10000
+    max_iterations = 50000
     save_interval = 500
     experiment_name = "cartpole_direct"
     empirical_normalization = False
