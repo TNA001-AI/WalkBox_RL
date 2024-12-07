@@ -10,9 +10,6 @@ import torch
 from collections.abc import Sequence
 
 from .legged_robot_cfg import LEGGED_CFG
-# from omni.isaac.lab_tasks.direct.rl_project.RL_rough import ROUGH_TERRAINS_CFG 
-from omni.isaac.lab.terrains.config.rough import ROUGH_TERRAINS_CFG 
-from omni.isaac.lab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.terrains import TerrainImporterCfg
@@ -20,26 +17,27 @@ from omni.isaac.lab.assets import Articulation, ArticulationCfg
 from omni.isaac.lab.envs import DirectRLEnv, DirectRLEnvCfg, ViewerCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg
 
-from omni.isaac.lab.sensors import TiledCamera, TiledCameraCfg, save_images_to_file
-from omni.isaac.lab.sensors import ImuCfg, Imu, patterns, ImuData
-from omni.isaac.lab.sensors import RayCasterCfg,RayCaster,ContactSensor, ContactSensorCfg
+from omni.isaac.lab.sensors import ContactSensor, ContactSensorCfg
+# from omni.isaac.lab.sensors import TiledCamera, TiledCameraCfg, save_images_to_file
+# from omni.isaac.lab.sensors import ImuCfg, Imu, patterns, ImuData
 
 from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.math import sample_uniform
 
 @configclass
-class RobotRayEnvCfg(DirectRLEnvCfg):
+class RobotImuEnvCfg(DirectRLEnvCfg):
     # env
+    #TODO
     decimation = 2
-    episode_length_s = 25.0  
+    episode_length_s = 60.0  
     action_scale = 100.0  # [N]
 
 
     # state and action spaces
     # TODO
     action_space = 6  
-    observation_space = 19  
+    observation_space = 18  
     state_space = 0
 
     # simulation
@@ -48,36 +46,19 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     # robot
     robot_cfg: ArticulationCfg = LEGGED_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 
-    # terrain = TerrainImporterCfg(
-    # prim_path="/World/ground",
-    # terrain_type="plane",
-    # collision_group=-1,
-    # physics_material=sim_utils.RigidBodyMaterialCfg(
-    #     friction_combine_mode="average",
-    #     restitution_combine_mode="average",
-    #     static_friction=1.0,
-    #     dynamic_friction=1.0,
-    #     restitution=0.0,
-    # ),
-    # debug_vis=False,
-    # )
     terrain = TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="generator",
-        terrain_generator=ROUGH_TERRAINS_CFG,
-        physics_material=sim_utils.RigidBodyMaterialCfg(
-        friction_combine_mode="multiply",
-        restitution_combine_mode="multiply",
+    prim_path="/World/ground",
+    terrain_type="plane",
+    collision_group=-1,
+    physics_material=sim_utils.RigidBodyMaterialCfg(
+        friction_combine_mode="average",
+        restitution_combine_mode="average",
         static_friction=1.0,
         dynamic_friction=1.0,
-    ),
-    visual_material=sim_utils.MdlFileCfg(
-        mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
-        project_uvw=True,
-        texture_scale=(0.25, 0.25),
+        restitution=0.0,
     ),
     debug_vis=False,
-    )
+)
     # sensors
     # imu = ImuCfg(
     #     prim_path="/World/Robot/base_link",
@@ -88,6 +69,7 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     #     ),
     # gravity_bias=(0.0, 0.0, 9.81),
     # )
+
     contact_forces_LF = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/Link0_2",
         track_pose=True,
@@ -108,17 +90,6 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
         filter_prim_paths_expr=["/World/ground"],
     )
 
-    height_scanner = RayCasterCfg(
-        prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/base_link",
-        update_period=0.02,
-        offset=RayCasterCfg.OffsetCfg(pos=(0.000, 0.000, -0.100), 
-                                    #   rot=(0.0, 0.0, 0.0, 0.0)
-                                      ),
-        attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
-        debug_vis=True,
-        mesh_prim_paths=["/World/ground"],
-    )
     write_image_to_file = False
 
 
@@ -138,23 +109,22 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
 
     rew_scale_direction = -0.5
 
-    rew_scale_head_velocity = 1
+    rew_scale_head_velocity = 1.2 # 1
 
     rew_scale_dof_vel = 1
 
-    rew_scale_airtime = 1
-
-    rew_scale_stationary = -0.1
+    rew_scale_airtime = 1 # 1
 
 
 
 
-class RobotRayUnevenEnv(DirectRLEnv):
 
-    cfg: RobotRayEnvCfg
+class RobotImuEnv(DirectRLEnv):
+
+    cfg: RobotImuEnvCfg
 
     def __init__(
-        self, cfg: RobotRayEnvCfg, render_mode: str | None = None, **kwargs
+        self, cfg: RobotImuEnvCfg, render_mode: str | None = None, **kwargs
     ):
         super().__init__(cfg, render_mode, **kwargs)
 
@@ -193,8 +163,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
         self.left_foot_airtime = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
         self.right_foot_airtime = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
-        #静止时间
-        self.stationary_time = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
         # target
         self.target =  self.head_pos.clone()
@@ -211,7 +179,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
     def _setup_scene(self):
         """Setup the scene."""
         self._robot = Articulation(self.cfg.robot_cfg)
-        self._ray = RayCaster(self.cfg.height_scanner)
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self.terrain = self.cfg.terrain.class_type(self.cfg.terrain)
@@ -224,7 +191,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
 
         # add articulation and sensors to scene
         self.scene.articulations["robot"] = self._robot
-        self.scene.sensors["height_scanner"] = self._ray
         self.scene.sensors["contact_sensor0"] = self._contact_sensor0
         self.scene.sensors["contact_sensor1"] = self._contact_sensor1
         # self.scene.sensors["imu"] = self._imu
@@ -249,8 +215,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
         if env_ids is None:
             env_ids = self._robot._ALL_INDICES
 
-        ray_data = self._ray.data.ray_hits_w
-        ray_data = ray_data[:, :, 2]
         # print("joint_pos:", self._robot.data.joint_pos, "shape:", self._robot.data.joint_pos.shape)
         # print("robot_dof_lower_limits:", self.robot_dof_lower_limits, "shape:", self.robot_dof_lower_limits.shape)       
         # # print(self.robot_dof_upper_limits - self.robot_dof_lower_limits)
@@ -266,6 +230,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
         self.head_rot = self._robot.data.body_quat_w[env_ids, self.head_link_idx]
         # linear and angular velocities
         self.head_vel = self._robot.data.body_vel_w[env_ids, self.head_link_idx]
+
         self.to_target = torch.norm(self.head_pos - self.target[env_ids], p=2, dim=-1).unsqueeze(-1)
         # PAN
         # print("to_target:",self.to_target)
@@ -275,7 +240,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # print("self._robot.data.joint_vel:", self._robot.data.joint_vel, "shape:", self._robot.data.joint_vel.shape)
         # print("self.to_target:", self.to_target, "shape:", self.to_target.shape)
         # print("head_pos:", self.head_pos, "shape:", self.head_pos.shape)
-        # print("ray_data:", ray_data, "shape:", ray_data.shape)
         # print("head_rot:", self.head_rot, "shape:", self.head_rot.shape)
         obs = torch.cat(
             (
@@ -284,8 +248,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
                 self.to_target,
                 self.head_pos,
                 self.head_rot,
-                self.head_vel,
-                ray_data
+                self.head_vel
             ),
             dim=-1,
         )
@@ -306,7 +269,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
             self.cfg.rew_scale_head_velocity,
             self.cfg.rew_scale_dof_vel,
             self.cfg.rew_scale_dof_vel,
-            self.cfg.rew_scale_stationary,
             self.head_pos,
             self.head_rot,
             self.target, 
@@ -326,56 +288,80 @@ class RobotRayUnevenEnv(DirectRLEnv):
         
         self.to_target = torch.norm(self.all_head_pos - self.target, p=2, dim=-1)
         
-        # # AIRTIME
+        ##判断高度        
         # # 地面高度阈值
-        # ground_level = 0.06  # 地面高度 6cm
+        # ground_level = 0.09  # 地面高度 6cm
     
-
-        # # 获取脚部 z 坐标
+        # 获取脚部 z 坐标
         # left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
         # right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
-        # # print("left_foot_pos:",left_foot_pos)
-        # # print("right_foot_pos:",right_foot_pos)
+        # print("left_foot_pos:",left_foot_pos)
+        # print("right_foot_pos:",right_foot_pos)
         # # 检测是否离地
         # left_foot_in_air = left_foot_pos > ground_level
         # right_foot_in_air = right_foot_pos > ground_level
 
-        # # 更新离地时间
+        ## 判断角度
+        # # 获取脚部四元数
+        # left_foot_quaternion = self._robot.data.body_quat_w[:, self.left_foot_idx]
+        # right_foot_quaternion = self._robot.data.body_quat_w[:, self.right_foot_idx]
+
+        # # 设置脚部姿态偏离地面的角度阈值（单位：rad）
+        # orientation_threshold = 15.0 * (torch.pi / 180)
+
+        # # 定义函数：将四元数转为欧拉角
+        # def quaternion_to_euler(q):
+        #     """
+        #     输入: 四元数 q (形状: [..., 4])
+        #     返回: 欧拉角 (roll, pitch, yaw) 形状: [..., 3]
+        #     """
+        #     x, y, z, w = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+        #     t0 = +2.0 * (w * x + y * z)
+        #     t1 = +1.0 - 2.0 * (x * x + y * y)
+        #     roll = torch.atan2(t0, t1)  # 横滚角（roll）
+
+        #     t2 = +2.0 * (w * y - z * x)
+        #     t2 = torch.clamp(t2, -1.0, +1.0)
+        #     pitch = torch.asin(t2)  # 俯仰角（pitch）
+
+        #     t3 = +2.0 * (w * z + x * y)
+        #     t4 = +1.0 - 2.0 * (y * y + z * z)
+        #     yaw = torch.atan2(t3, t4)  # 偏航角（yaw）
+
+        #     return torch.stack((roll, pitch, yaw), dim=-1)
+
+        # # 转换为欧拉角
+        # left_foot_euler = quaternion_to_euler(left_foot_quaternion)
+        # right_foot_euler = quaternion_to_euler(right_foot_quaternion)
+
+        # # 计算俯仰角和横滚角的绝对值
+        # left_foot_angle_offset = torch.abs(left_foot_euler[:, 0]) + torch.abs(left_foot_euler[:, 1])
+        # right_foot_angle_offset = torch.abs(right_foot_euler[:, 0]) + torch.abs(right_foot_euler[:, 1])
+
+        # # 判断是否在姿态阈值内
+        # left_foot_valid = left_foot_angle_offset < orientation_threshold
+        # right_foot_valid = right_foot_angle_offset < orientation_threshold
+
+        # # 检测是否离地
+        # left_foot_in_air = (left_foot_pos > ground_level) & left_foot_valid
+        # right_foot_in_air = (right_foot_pos > ground_level) & right_foot_valid
+        # 更新离地时间
         # self.left_foot_airtime[left_foot_in_air] += self.dt
         # self.right_foot_airtime[right_foot_in_air] += self.dt
         # self.left_foot_airtime[~left_foot_in_air] = 0
         # self.right_foot_airtime[~right_foot_in_air] = 0
-        # 累积静止时间
-        linear_speed = torch.norm(self._robot.data.body_vel_w[:, self.head_link_idx, :3], p=2, dim=-1)
-        speed_threshold = 0.05  # 低于这个速度认为是静止
-        is_stationary = (linear_speed < speed_threshold)
-        self.stationary_time = torch.where(is_stationary, 
-                                       self.stationary_time + self.dt, 
-                                       torch.zeros_like(self.stationary_time))
-    
 
-        # AirTime
         self.left_foot_airtime = self._contact_sensor0.data.current_air_time.squeeze(-1)
         self.right_foot_airtime = self._contact_sensor1.data.current_air_time.squeeze(-1)
-        # print("left_foot_airtime:",self.left_foot_airtime)
-
-        # 抬脚高度
-        reset_ground_level = 0.2 # 20cm
-        # 获取脚部 z 坐标
-        left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
-        right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
-
-        # 检测脚部是否超过高度阈值（20cm）
-        foot_too_high = (left_foot_pos > reset_ground_level) | (right_foot_pos > reset_ground_level)
-
+        # print("left_foot_airtime",self.left_foot_airtime, "shape:", self.left_foot_airtime.shape)
         # if the robot has reached the target
         reached_target = self.to_target < 0.5
 
         # if the head's z-position is less than 0.15 units
-        fallen = self.all_head_pos[:, 2] < 0.2
+        fallen = self.all_head_pos[:, 2] < 0.20
 
         # Combine termination conditions
-        terminated = reached_target | fallen | foot_too_high
+        terminated = reached_target | fallen
         
         truncated = self.episode_length_buf >= self.max_episode_length - 1
 
@@ -454,7 +440,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
 #     total_reward = rew_alive + rew_termination + rew_dist
 #     return total_reward
 
-    #PAN
+#PAN
     def compute_rewards(self,
         rew_scale_alive: float,
         rew_scale_terminated: float,
@@ -462,8 +448,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
         rew_scale_direction: float,
         rew_scale_head_velocity: float,
         rew_scale_dof_vel: float,
-        rew_scale_airtime: float,
-        rew_scale_stationary: float,
+        rew_scale_airtime:float,
         head_pos: torch.Tensor,
         head_rot: torch.Tensor,
         targets: torch.Tensor,
@@ -477,8 +462,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # print("d: ", head_pos - targets)
         # the more closer, the higher of dist_reward
         dist_reward = d
-        # rew_dist = rew_scale_dist * dist_reward
-        rew_dist = 10 * 1.3 ** (-d)
+        rew_dist = rew_scale_dist * dist_reward
         rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
         rew_termination = rew_scale_terminated * reset_terminated.float()
         rew_direction = rew_scale_direction * quaternion_to_angle(head_rot)
@@ -494,9 +478,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
         rew_right_airtime = rew_scale_airtime * self.right_foot_airtime
         rew_airtime = rew_left_airtime + rew_right_airtime
 
-        # 静止时间惩罚：指数级增长
-        stationary_penalty = rew_scale_stationary * (2 ** (self.stationary_time/12)) # per 0.1s
-
         # Compute total reward
         total_reward = (rew_alive + 
                         rew_termination + 
@@ -504,8 +485,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
                         rew_direction + 
                         rew_vel + 
                         # rew_dof_vel +
-                        rew_airtime +
-                        stationary_penalty
+                        rew_airtime
                         )
         self.extras["log"] = {
         "rew_alive": (rew_alive).mean(),
@@ -515,7 +495,6 @@ class RobotRayUnevenEnv(DirectRLEnv):
         "rew_vel": (rew_vel).mean(),
         # "rew_dof_vel": (rew_dof_vel).mean(),
         "rew_airtime": (rew_airtime).mean(),
-        "stationary_penalty":(stationary_penalty).mean()
         }
         return total_reward
 
