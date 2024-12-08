@@ -115,7 +115,7 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
                                     #   rot=(0.0, 0.0, 0.0, 0.0)
                                       ),
         attach_yaw_only=True,
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.05, size=[0.6, 0.6]),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
@@ -132,19 +132,19 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     # reward scales
     # TODO
     rew_scale_alive = 0.5
-    rew_scale_terminated = -20.0
+    rew_scale_terminated = -50.0 #-20
 
-    rew_scale_dist = -0.05
+    rew_scale_dist = -0.5
 
-    rew_scale_direction = -0.5
+    rew_scale_direction = -2
 
-    rew_scale_head_velocity = 1
+    rew_scale_head_velocity = 5
 
     rew_scale_dof_vel = 1
 
-    rew_scale_airtime = 1
+    rew_scale_airtime = 100
 
-    rew_scale_stationary = -0.1
+    rew_scale_stationary = -300
 
 
 
@@ -251,9 +251,10 @@ class RobotRayUnevenEnv(DirectRLEnv):
 
         ray_data = self._ray.data.ray_hits_w
         ray_data = ray_data[:, :, 2]
+        # print("ray_data:",ray_data)
         # print("joint_pos:", self._robot.data.joint_pos, "shape:", self._robot.data.joint_pos.shape)
         # print("robot_dof_lower_limits:", self.robot_dof_lower_limits, "shape:", self.robot_dof_lower_limits.shape)       
-        # # print(self.robot_dof_upper_limits - self.robot_dof_lower_limits)
+        # print(self.robot_dof_upper_limits - self.robot_dof_lower_limits)
 
         # dof_pos_scaled = (
         #     2.0
@@ -295,7 +296,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
         self.head_pos = self._robot.data.body_pos_w[:, self.head_link_idx]
         self.head_rot = self._robot.data.body_quat_w[:, self.head_link_idx]
         # linear and angular velocities
-        self.head_vel = self._robot.data.body_lin_vel_w[:, self.head_link_idx]
+        self.head_vel = self._robot.data.root_lin_vel_w
         # print("head_rot:", self.head_rot, "shape:", self.head_rot.shape)
         dof_vel = self._robot.data.joint_vel
         total_reward = self.compute_rewards(
@@ -346,12 +347,15 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # self.left_foot_airtime[~left_foot_in_air] = 0
         # self.right_foot_airtime[~right_foot_in_air] = 0
         # 累积静止时间
-        linear_speed = torch.norm(self._robot.data.body_vel_w[:, self.head_link_idx, :3], p=2, dim=-1)
-        speed_threshold = 0.05  # 低于这个速度认为是静止
+        linear_speed = torch.abs(self._robot.data.root_lin_vel_w[:, 0])
+        # linear_z_speed = torch.abs(self._robot.data.root_lin_vel_w[:, 2])
+        # print("liner_speed:",linear_z_speed)
+        speed_threshold = 0.1  # 低于这个速度认为是静止
         is_stationary = (linear_speed < speed_threshold)
         self.stationary_time = torch.where(is_stationary, 
-                                       self.stationary_time + self.dt, 
-                                       torch.zeros_like(self.stationary_time))
+                                    self.stationary_time + self.dt, 
+                                    #    torch.zeros_like(self.stationary_time))
+                                    self.stationary_time)
     
 
         # AirTime
@@ -360,7 +364,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # print("left_foot_airtime:",self.left_foot_airtime)
 
         # 抬脚高度
-        reset_ground_level = 0.2 # 20cm
+        reset_ground_level = 0.12 # 12cm
         # 获取脚部 z 坐标
         left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
         right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
@@ -371,8 +375,12 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # if the robot has reached the target
         reached_target = self.to_target < 0.5
 
-        # if the head's z-position is less than 0.15 units
-        fallen = self.all_head_pos[:, 2] < 0.2
+        # if the head's z-position is less than 0.25 units
+        fallen = self.all_head_pos[:, 2] < 0.25
+        # speed z > 0.2 m/s
+        # fallen1 = linear_z_speed > 0.4
+
+        # fallen = fallen0 | fallen1
 
         # Combine termination conditions
         terminated = reached_target | fallen | foot_too_high
@@ -413,6 +421,8 @@ class RobotRayUnevenEnv(DirectRLEnv):
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
+        #静止时间
+        self.stationary_time = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
         # Need to refresh the intermediate values so that _get_observations() can use the latest values
         self._compute_intermediate_values(env_ids)
@@ -477,8 +487,8 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # print("d: ", head_pos - targets)
         # the more closer, the higher of dist_reward
         dist_reward = d
-        # rew_dist = rew_scale_dist * dist_reward
-        rew_dist = 10 * 1.3 ** (-d)
+        rew_dist = rew_scale_dist * dist_reward
+        # rew_dist = 10 * 1.3 ** (-d)
         rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
         rew_termination = rew_scale_terminated * reset_terminated.float()
         rew_direction = rew_scale_direction * quaternion_to_angle(head_rot)
@@ -490,12 +500,18 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # rew_dof_vel = rew_scale_dof_vel * hip_vel.squeeze(-1)
 
         # 左右脚离地奖励
-        rew_left_airtime = rew_scale_airtime * self.left_foot_airtime
-        rew_right_airtime = rew_scale_airtime * self.right_foot_airtime
+        rew_left_airtime = self.left_foot_airtime
+        rew_right_airtime = self.right_foot_airtime
+        # 如果 airtime > 2，给予负奖励，否则给予正奖励
+        rew_left_airtime = torch.where(rew_left_airtime > 2, -rew_scale_airtime * rew_left_airtime, rew_scale_airtime * rew_left_airtime)
+        rew_right_airtime = torch.where(rew_right_airtime > 2, -rew_scale_airtime * rew_right_airtime, rew_scale_airtime * rew_right_airtime)
+
+        # print(rew_left_airtime,rew_right_airtime)
         rew_airtime = rew_left_airtime + rew_right_airtime
 
         # 静止时间惩罚：指数级增长
-        stationary_penalty = rew_scale_stationary * (2 ** (self.stationary_time/12)) # per 0.1s
+        stationary_penalty = rew_scale_stationary * (2 ** (self.stationary_time)-1) 
+        # print("stationary_time:", self.stationary_time)
 
         # Compute total reward
         total_reward = (rew_alive + 
