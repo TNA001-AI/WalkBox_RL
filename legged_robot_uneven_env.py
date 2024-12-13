@@ -142,9 +142,9 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
 
     rew_scale_dof_vel = 1
 
-    rew_scale_airtime = 1
+    rew_scale_airtime = 1000
 
-    rew_scale_stationary = -0.1
+    rew_scale_stationary = -1
 
 
 
@@ -348,6 +348,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # 累积静止时间
         linear_speed = torch.norm(self._robot.data.body_vel_w[:, self.head_link_idx, :3], p=2, dim=-1)
         speed_threshold = 0.05  # 低于这个速度认为是静止
+        # speed_threshold = 0.10  # 低于这个速度认为是静止
         is_stationary = (linear_speed < speed_threshold)
         self.stationary_time = torch.where(is_stationary, 
                                        self.stationary_time + self.dt, 
@@ -492,10 +493,10 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # 左右脚离地奖励
         rew_left_airtime = rew_scale_airtime * self.left_foot_airtime
         rew_right_airtime = rew_scale_airtime * self.right_foot_airtime
-        rew_airtime = rew_left_airtime + rew_right_airtime
+        rew_airtime = torch.log(rew_left_airtime + rew_right_airtime + 1)
 
         # 静止时间惩罚：指数级增长
-        stationary_penalty = rew_scale_stationary * (2 ** (self.stationary_time/12)) # per 0.1s
+        stationary_penalty = rew_scale_stationary * (2 ** (self.stationary_time)) # per 0.1s
 
         # Compute total reward
         total_reward = (rew_alive + 
