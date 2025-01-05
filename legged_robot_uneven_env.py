@@ -418,7 +418,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
                     #    | foot_too_high
                        )
         
-        truncated = self.episode_length_buf >= self.max_episode_length - 1 | reached_target
+        truncated = (self.episode_length_buf >= self.max_episode_length - 1) | reached_target
 
         # print('max_episode_length:',self.max_episode_length)
         self.reset_terminated = terminated  # Update the reset flag
