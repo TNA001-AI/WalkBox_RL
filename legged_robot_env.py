@@ -289,9 +289,9 @@ class RobotImuEnv(DirectRLEnv):
         fallen = self.all_head_pos[:, 2] < 0.20
 
         # Combine termination conditions
-        terminated = reached_target | fallen
+        terminated = fallen
         
-        truncated = self.episode_length_buf >= self.max_episode_length - 1
+        truncated = self.episode_length_buf >= self.max_episode_length - 1 | reached_target
 
         # print('max_episode_length:',self.max_episode_length)
         self.reset_terminated = terminated  # Update the reset flag

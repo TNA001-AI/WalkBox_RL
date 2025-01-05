@@ -28,18 +28,20 @@ from omni.isaac.lab.sim import SimulationCfg
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.utils.math import sample_uniform
 
+from omni.isaac.core.utils.torch.rotations import get_euler_xyz,quats_to_rot_matrices
+
 @configclass
 class RobotRayEnvCfg(DirectRLEnvCfg):
     # env
     decimation = 2
     episode_length_s = 25.0  
-    action_scale = 100.0  # [N]
+    action_scale = 100  # [rad] 2pi/60 = 0.1047
 
 
     # state and action spaces
     # TODO
     action_space = 6  
-    observation_space = 19  
+    observation_space = 170 # 26 + (6/0.5) * (6/0.5)
     state_space = 0
 
     # simulation
@@ -88,25 +90,25 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     #     ),
     # gravity_bias=(0.0, 0.0, 9.81),
     # )
-    contact_forces_LF = ContactSensorCfg(
-        prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/Link0_2",
-        track_pose=True,
-        debug_vis=False,
-        update_period=0.0,
-        track_air_time=True,
-        history_length=3,
-        filter_prim_paths_expr=["/World/ground"],
-    )
+    # contact_forces_LF = ContactSensorCfg(
+    #     prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/Link0_2",
+    #     track_pose=True,
+    #     debug_vis=False,
+    #     update_period=0.0,
+    #     track_air_time=True,
+    #     history_length=3,
+    #     filter_prim_paths_expr=["/World/ground"],
+    # )
 
-    contact_forces_RF = ContactSensorCfg(
-        prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/Link1_2",
-        track_pose=True,
-        debug_vis=False,
-        update_period=0.0,
-        track_air_time=True,
-        history_length=3,
-        filter_prim_paths_expr=["/World/ground"],
-    )
+    # contact_forces_RF = ContactSensorCfg(
+    #     prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/Link1_2",
+    #     track_pose=True,
+    #     debug_vis=False,
+    #     update_period=0.0,
+    #     track_air_time=True,
+    #     history_length=3,
+    #     filter_prim_paths_expr=["/World/ground"],
+    # )
 
     height_scanner = RayCasterCfg(
         prim_path="/World/envs/env_.*/Robot/WalkBox3/WalkBox/base_link",
@@ -127,24 +129,46 @@ class RobotRayEnvCfg(DirectRLEnvCfg):
     viewer = ViewerCfg(eye=(20.0, 20.0, 20.0))
 
     # scene
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1024, env_spacing=20.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=512, env_spacing=2.0, replicate_physics=True)
 
     # reward scales
     # TODO
+    # rew_scale_alive = 0.5
+    # rew_scale_terminated = -20 #-20
+
+    # rew_scale_dist = -0.1
+
+    # rew_scale_direction = -0.8
+
+    # rew_scale_head_velocity = 1
+
+    # rew_scale_dof_vel = 1
+
+    # rew_scale_airtime = 100
+
+    # rew_scale_airtime0 = 0.05
+
+    # rew_scale_stationary = -30
+
     rew_scale_alive = 0.5
     rew_scale_terminated = -50.0 #-20
 
-    rew_scale_dist = -0.5
+    rew_scale_dist = -1.5
 
-    rew_scale_direction = -2
+    rew_scale_head_z = 5.0 #5.0
 
-    rew_scale_head_velocity = 5
+    rew_scale_direction = -1.5
 
-    rew_scale_dof_vel = 1
+    rew_scale_head_velocity = 1.0
 
-    rew_scale_airtime = 100
+    rew_scale_dof_vel = 1.0
 
-    rew_scale_stationary = -300
+    rew_scale_airtime = 0.0
+
+    rew_scale_airtime0 = 5.0
+
+    rew_scale_stationary = -30.0
+
 
 
 
@@ -190,6 +214,8 @@ class RobotRayUnevenEnv(DirectRLEnv):
         # )
 
         # 用于记录左右脚的离地状态
+        self.left_foot_airtime0 = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
+        self.right_foot_airtime0 = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
         self.left_foot_airtime = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
         self.right_foot_airtime = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
@@ -217,16 +243,18 @@ class RobotRayUnevenEnv(DirectRLEnv):
         self.terrain = self.cfg.terrain.class_type(self.cfg.terrain)
         # self._imu = Imu(self.cfg.imu)
         # clone, filter, and replicate
-        self._contact_sensor0: ContactSensor = ContactSensor(self.cfg.contact_forces_LF)
-        self._contact_sensor1: ContactSensor = ContactSensor(self.cfg.contact_forces_RF)
+        # conract sensors
+        # self._contact_sensor0: ContactSensor = ContactSensor(self.cfg.contact_forces_LF)
+        # self._contact_sensor1: ContactSensor = ContactSensor(self.cfg.contact_forces_RF)
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[])
 
         # add articulation and sensors to scene
         self.scene.articulations["robot"] = self._robot
         self.scene.sensors["height_scanner"] = self._ray
-        self.scene.sensors["contact_sensor0"] = self._contact_sensor0
-        self.scene.sensors["contact_sensor1"] = self._contact_sensor1
+        # contact sensors
+        # self.scene.sensors["contact_sensor0"] = self._contact_sensor0
+        # self.scene.sensors["contact_sensor1"] = self._contact_sensor1
         # self.scene.sensors["imu"] = self._imu
         # add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
@@ -237,6 +265,7 @@ class RobotRayUnevenEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
         # print("joint_pos:", self._robot.data.joint_pos, "shape:", self._robot.data.joint_pos.shape)
         # print("robot_dof_lower_limits:", self.robot_dof_lower_limits, "shape:", self.robot_dof_lower_limits.shape)       
+        # print("robot_dof_upper_limits:", self.robot_dof_upper_limits, "shape:", self.robot_dof_upper_limits.shape)
         self.actions = actions.clone().clamp(-1.0, 1.0)
         dof_targets = self.robot_dof_targets + self.dt * self.actions * self.cfg.action_scale
         self.robot_dof_targets[:] = torch.clamp(dof_targets, self.robot_dof_lower_limits, self.robot_dof_upper_limits)
@@ -303,11 +332,13 @@ class RobotRayUnevenEnv(DirectRLEnv):
             self.cfg.rew_scale_alive,
             self.cfg.rew_scale_terminated,
             self.cfg.rew_scale_dist,
+            self.cfg.rew_scale_head_z,
             self.cfg.rew_scale_direction,
             self.cfg.rew_scale_head_velocity,
             self.cfg.rew_scale_dof_vel,
-            self.cfg.rew_scale_dof_vel,
+            self.cfg.rew_scale_airtime,
             self.cfg.rew_scale_stationary,
+            self.cfg.rew_scale_airtime0,
             self.head_pos,
             self.head_rot,
             self.target, 
@@ -327,25 +358,25 @@ class RobotRayUnevenEnv(DirectRLEnv):
         
         self.to_target = torch.norm(self.all_head_pos - self.target, p=2, dim=-1)
         
-        # # AIRTIME
-        # # 地面高度阈值
-        # ground_level = 0.06  # 地面高度 6cm
+        # AIRTIME
+        # 地面高度阈值
+        ground_level = 0.06  # 地面高度 6cm
     
 
-        # # 获取脚部 z 坐标
-        # left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
-        # right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
-        # # print("left_foot_pos:",left_foot_pos)
-        # # print("right_foot_pos:",right_foot_pos)
-        # # 检测是否离地
-        # left_foot_in_air = left_foot_pos > ground_level
-        # right_foot_in_air = right_foot_pos > ground_level
+        # 获取脚部 z 坐标
+        left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
+        right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
+        # print("left_foot_pos:",left_foot_pos)
+        # print("right_foot_pos:",right_foot_pos)
+        # 检测是否离地
+        left_foot_in_air = left_foot_pos > ground_level
+        right_foot_in_air = right_foot_pos > ground_level
 
-        # # 更新离地时间
-        # self.left_foot_airtime[left_foot_in_air] += self.dt
-        # self.right_foot_airtime[right_foot_in_air] += self.dt
-        # self.left_foot_airtime[~left_foot_in_air] = 0
-        # self.right_foot_airtime[~right_foot_in_air] = 0
+        # 更新离地时间
+        self.left_foot_airtime0[left_foot_in_air] += self.dt
+        self.right_foot_airtime0[right_foot_in_air] += self.dt
+        self.left_foot_airtime0[~left_foot_in_air] = 0
+        self.right_foot_airtime0[~right_foot_in_air] = 0
         # 累积静止时间
         linear_speed = torch.abs(self._robot.data.root_lin_vel_w[:, 0])
         # linear_z_speed = torch.abs(self._robot.data.root_lin_vel_w[:, 2])
@@ -359,12 +390,12 @@ class RobotRayUnevenEnv(DirectRLEnv):
     
 
         # AirTime
-        self.left_foot_airtime = self._contact_sensor0.data.current_air_time.squeeze(-1)
-        self.right_foot_airtime = self._contact_sensor1.data.current_air_time.squeeze(-1)
+        # self.left_foot_airtime = self._contact_sensor0.data.current_air_time.squeeze(-1)
+        # self.right_foot_airtime = self._contact_sensor1.data.current_air_time.squeeze(-1)
         # print("left_foot_airtime:",self.left_foot_airtime)
 
         # 抬脚高度
-        reset_ground_level = 0.12 # 12cm
+        reset_ground_level = 0.20 # 12cm
         # 获取脚部 z 坐标
         left_foot_pos = self._robot.data.body_pos_w[:, self.left_foot_idx, 2]
         right_foot_pos = self._robot.data.body_pos_w[:, self.right_foot_idx, 2]
@@ -373,19 +404,21 @@ class RobotRayUnevenEnv(DirectRLEnv):
         foot_too_high = (left_foot_pos > reset_ground_level) | (right_foot_pos > reset_ground_level)
 
         # if the robot has reached the target
-        reached_target = self.to_target < 0.5
+        reached_target = self.to_target < 0.2
 
         # if the head's z-position is less than 0.25 units
-        fallen = self.all_head_pos[:, 2] < 0.25
+        fallen = self.all_head_pos[:, 2] < 0.2
         # speed z > 0.2 m/s
         # fallen1 = linear_z_speed > 0.4
 
         # fallen = fallen0 | fallen1
 
         # Combine termination conditions
-        terminated = reached_target | fallen | foot_too_high
+        terminated =  (fallen 
+                    #    | foot_too_high
+                       )
         
-        truncated = self.episode_length_buf >= self.max_episode_length - 1
+        truncated = self.episode_length_buf >= self.max_episode_length - 1 | reached_target
 
         # print('max_episode_length:',self.max_episode_length)
         self.reset_terminated = terminated  # Update the reset flag
@@ -464,16 +497,17 @@ class RobotRayUnevenEnv(DirectRLEnv):
 #     total_reward = rew_alive + rew_termination + rew_dist
 #     return total_reward
 
-    #PAN
     def compute_rewards(self,
         rew_scale_alive: float,
         rew_scale_terminated: float,
         rew_scale_dist: float,
+        rew_scale_head_z: float,
         rew_scale_direction: float,
         rew_scale_head_velocity: float,
         rew_scale_dof_vel: float,
         rew_scale_airtime: float,
         rew_scale_stationary: float,
+        rew_scale_airtime0: float,
         head_pos: torch.Tensor,
         head_rot: torch.Tensor,
         targets: torch.Tensor,
@@ -482,62 +516,83 @@ class RobotRayUnevenEnv(DirectRLEnv):
         reset_terminated: torch.Tensor,
     ):
         # Compute distance-based reward: Euclidean distance
-        d = torch.norm(head_pos - targets, p=2, dim=-1)
-        # print("head_pos: ", head_pos)
-        # print("d: ", head_pos - targets)
+        d = torch.norm(head_pos[:,0:2] - targets[:,0:2], p=2, dim=-1)
+        # print("head_pos: ", head_pos[:,0])
+        # print("target:", targets[:,0:2])
+        # print("d: ", d)
         # the more closer, the higher of dist_reward
         dist_reward = d
         rew_dist = rew_scale_dist * dist_reward
+
+        # head 的 z 轴高度
+        rew_head_z = rew_scale_head_z * head_pos[:, 2]
+
         # rew_dist = 10 * 1.3 ** (-d)
         rew_alive = rew_scale_alive * (1.0 - reset_terminated.float())
         rew_termination = rew_scale_terminated * reset_terminated.float()
-        rew_direction = rew_scale_direction * quaternion_to_angle(head_rot)
+        rew_direction = rew_scale_direction * torch.abs(quaternion_to_angle(head_rot))
         rew_vel = rew_scale_head_velocity * head_vel[:,0]
-        
+        # print("rew_vel:",rew_vel[0])
         # print("rew_dof_vel:",dof_vel)
         # hip_vel = (torch.abs(dof_vel[:, self.left_hip_joint_idx[0]]) + 
         #            torch.abs(dof_vel[:, self.right_hip_joint_idx[0]]))
         # rew_dof_vel = rew_scale_dof_vel * hip_vel.squeeze(-1)
 
-        # 左右脚离地奖励
-        rew_left_airtime = self.left_foot_airtime
-        rew_right_airtime = self.right_foot_airtime
-        # 如果 airtime > 2，给予负奖励，否则给予正奖励
-        rew_left_airtime = torch.where(rew_left_airtime > 2, -rew_scale_airtime * rew_left_airtime, rew_scale_airtime * rew_left_airtime)
-        rew_right_airtime = torch.where(rew_right_airtime > 2, -rew_scale_airtime * rew_right_airtime, rew_scale_airtime * rew_right_airtime)
+        # TODO 不触碰地面奖励
+        # # 左右脚离地奖励
+        # rew_left_airtime = self.left_foot_airtime
+        # rew_right_airtime = self.right_foot_airtime
 
-        # print(rew_left_airtime,rew_right_airtime)
-        rew_airtime = rew_left_airtime + rew_right_airtime
+        # # 如果 airtime > 2，给予负奖励，否则给予正奖励
+        # rew_left_airtime = torch.where(rew_left_airtime > 1.5, -rew_scale_airtime * rew_left_airtime, rew_scale_airtime * rew_left_airtime)
+        # rew_right_airtime = torch.where(rew_right_airtime > 1.5, -rew_scale_airtime * rew_right_airtime, rew_scale_airtime * rew_right_airtime)
 
+        # # print(rew_left_airtime,rew_right_airtime)
+        # rew_airtime = rew_scale_airtime * (rew_left_airtime + rew_right_airtime)
+
+        # 抬腿一定高度奖励
+        rew_airtime0 = rew_scale_airtime0 * ((self.left_foot_airtime0 + self.right_foot_airtime0)>0.1)
+        # # # 如果 airtime0 > 1.5，给予负奖励，否则给予正奖励
+        # rew_left_airtime0 = torch.where(self.left_foot_airtime0 > 1.5, -1 * self.left_foot_airtime0 , 1 * self.left_foot_airtime0 )
+        # rew_right_airtime0 = torch.where(self.right_foot_airtime0 > 1.5, -1 * self.right_foot_airtime0, 1 * self.right_foot_airtime0)
+
+        # rew_airtime0 = rew_scale_airtime0 * (rew_left_airtime0 + rew_right_airtime0)
+
+        # print("rew_foot_airtime0:",rew_airtime0)
         # 静止时间惩罚：指数级增长
-        stationary_penalty = rew_scale_stationary * (2 ** (self.stationary_time)-1) 
-        # print("stationary_time:", self.stationary_time)
+        # stationary_penalty = rew_scale_stationary * self.stationary_time
+        # # print("stationary_time:", self.stationary_time)
 
         # Compute total reward
         total_reward = (rew_alive + 
                         rew_termination + 
                         rew_dist + 
-                        rew_direction + 
-                        rew_vel + 
+                        rew_head_z +
+                        rew_direction +
+                        rew_vel + # x轴速度
                         # rew_dof_vel +
-                        rew_airtime +
-                        stationary_penalty
+                        # rew_airtime +
+                        # stationary_penalty +
+                        rew_airtime0
                         )
         self.extras["log"] = {
         "rew_alive": (rew_alive).mean(),
         "rew_termination": (rew_termination).mean(),
         "rew_dist": (rew_dist).mean(),
+        "rew_head_z": (rew_head_z).mean(),
         "rew_direction": (rew_direction).mean(),
         "rew_vel": (rew_vel).mean(),
         # "rew_dof_vel": (rew_dof_vel).mean(),
-        "rew_airtime": (rew_airtime).mean(),
-        "stationary_penalty":(stationary_penalty).mean()
+        # "rew_airtime": (rew_airtime).mean(),
+        "rew_airtime0": (rew_airtime0).mean(),
+        # "stationary_penalty":(stationary_penalty).mean()
         }
         return total_reward
 
 
 
 def quaternion_to_angle(quaternions: torch.Tensor):
+    # print("quaternions: ", quaternions)
     if quaternions.shape[1] != 4:
         raise ValueError("Input quaternion must have shape (n, 4).")
     
@@ -546,6 +601,15 @@ def quaternion_to_angle(quaternions: torch.Tensor):
     x_prime = 1 - 2 * (y**2 + z**2)
     
     angles = torch.arccos(torch.clamp(x_prime, -1.0, 1.0))  # [-1, 1]
-    # print("angle: ", angles, "shape:", angles.shape)
+    # print("angles: ", angles)
+    # # roll, pitch, yaw  = get_euler_xyz(quaternions)
+    # # print("angle0: ", roll)
+    # # arccos = torch.clamp(x_prime, -1.0, 1.0)
 
+    # R = quats_to_rot_matrices(quaternions)
+    # # print("R:", R)
+    # a = R[:,0,0]
+    # angles1 = torch.arccos(a)
+    # print("angles1: ", angles1)
+    # # print("a:", a)
     return angles
