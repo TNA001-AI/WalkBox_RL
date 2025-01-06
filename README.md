@@ -1,5 +1,5 @@
 # Legged Robot
-## Video
+## [Video](https://youtu.be/eACXkdx2TQM)
 
 
 ## Documents
