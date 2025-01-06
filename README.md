@@ -1,4 +1,7 @@
 # Legged Robot
+## Video
+file:///home/tao/rl-video-step-0.mp4
+
 ## Documents
 [Isaac-sim](https://docs.omniverse.nvidia.com/isaacsim/latest/how_to_guides/robots_simulation.html)
 
